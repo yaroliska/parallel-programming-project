@@ -87,7 +87,7 @@ void initializeMatrix(double* &pMatrix, double* &pVector, double* &pResult) {
 
 // Первый шаг алгоритма - вычисление градиента на текущем шаге (currentG)
 void compute_gradient(double* pMatrix, double* pVector, double* previousX, double* &currentG, int size) {
-#pragma omp parallel for	
+#pragma omp parallel for num_threads(4)
 	for (int i = 0; i<size; i++) {
 		currentG[i] = -pVector[i];
 		for (int j = 0; j<size; j++)
@@ -98,12 +98,12 @@ void compute_gradient(double* pMatrix, double* pVector, double* previousX, doubl
 // Второй шаг алгоритма - вычисление вектора направления (currentD)
 void compute_direction(double* currentG, double* previousG, double* previousD, double* &currentD, int size) {
 	double IP1 = 0, IP2 = 0;
-#pragma omp parallel for reduction(+:IP1,IP2)
+#pragma omp parallel for reduction(+:IP1,IP2) num_threads(4)
 	for (int i = 0; i<size; i++) {
 		IP1 += currentG[i] * currentG[i];
 		IP2 += previousG[i] * previousG[i];
 	}
-#pragma omp parallel for
+#pragma omp parallel for num_threads(4)
 	for (int i = 0; i<size; i++) {
 		currentD[i] = -currentG[i] + previousD[i] * IP1 / IP2;
 	}
@@ -112,7 +112,7 @@ void compute_direction(double* currentG, double* previousG, double* previousD, d
 // Третий шаг алгоритма - вычисление величины смещения по выбранному направлению (step)
 void compute_scalyar_step(double* currentD, double* currentG, double* pMatrix, double &step, double* denom, int size) {
 	double IP1 = 0, IP2 = 0;
-#pragma omp parallel for reduction(+:IP1,IP2)
+#pragma omp parallel for reduction(+:IP1,IP2) num_threads(4)
 	for (int i = 0; i<size; i++) {
 		denom[i] = 0;
 		for (int j = 0; j<size; j++)
@@ -125,7 +125,7 @@ void compute_scalyar_step(double* currentD, double* currentG, double* pMatrix, d
 
 // Четвертый шаг алгоритма - вычисление нового приближения, промежуточного результата (currentX)
 void compute_x(double* previousX, double step, double* currentD, double* &currentX, int size) {
-#pragma omp parallel for 
+#pragma omp parallel for num_threads(4)
 	for (int i = 0; i<size; i++) {
 		currentX[i] = previousX[i] + step * currentD[i];
 	}
@@ -217,8 +217,8 @@ void algorithmCalculation(double* pMatrix, double* pVector, double* pResult, int
 		numberOfIterations++;
 	} while (checkStopCondition(previousX, currentX, size, accuracy));
 
-	printf_s("Quantity of iteratins: ");
-	printf_s("%d\n", numberOfIterations);
+///	printf_s("Quantity of iteratins: ");
+///	printf_s("%d\n", numberOfIterations);
 	// Запись в результирующий вектор
 	for (int i = 0; i<size; i++)
 		pResult[i] = currentX[i];
@@ -253,27 +253,41 @@ int main(int argc, char **argv) {
 	double* pVector; //вектор
 	double* pResult; //и вектор для результата
 
-	int size = 100;//Размер матрицы. Данный параметр мутабельый
+	int size = 1000;//Размер матрицы. Данный параметр мутабельый
 
-	float accuracy = 0.01; // Погрешность вычислений - эпсилон. Данный параметр мутабельный
-	pMatrix = randomSynchronousPositiveDefiniteMatrix(size);//создали симметричную положительноопределенную матрицу
-															//printMatrix(pMatrix, size);
-	pVector = createNullable(size);//создали рандомный вектор
-	randomizeSmth(pVector, size);
-	//printVector(pVector, size);
-	//initializeMatrix(pMatrix, pVector, pResult);
-	pResult = createNullable(size);
+	int dimensions[9] = { 100, 500, 1000, 2000, 3000, 4000, 5000, 6000, 7000};
+	int iterations[9] = { 100, 100, 100, 100, 80, 50, 50, 50, 25};
 
-	unsigned __int64 t11, t12;
-	const unsigned __int64 f = 2400000000;
-	DWORD start = GetTickCount();
-	t11 = __rdtsc();
-	algorithmCalculation(pMatrix, pVector, pResult, size, accuracy);//запустили алгоритм по шагам	
-	t12 = __rdtsc();
-	DWORD end = GetTickCount();
-	cout << "Windows, " << (double)(end - start) << " milliseconds\n" << endl;
-	cout << "Registr, " << (((t12 - t11) / (double)f) * 1000) << " milliseconds\n" << endl;
-	checkTotalResultAbsolutely(pMatrix, pVector, pResult, size);
+	float accuracy = 0.01f; // Погрешность вычислений - эпсилон. Данный параметр мутабельный
+	const unsigned __int64 frequency = 2000000000;
+
+	for (int iterator = 0; iterator < 9; iterator++) {
+
+		pMatrix = randomSynchronousPositiveDefiniteMatrix(dimensions[iterator]);
+		pVector = createNullable(dimensions[iterator]);
+		randomizeSmth(pVector, dimensions[iterator]);
+		pResult = createNullable(dimensions[iterator]);
+
+		unsigned __int64 registrStartTime, registrEndTime;
+		
+		DWORD windowsStartTime = GetTickCount();
+		registrStartTime = __rdtsc();
+
+		for (int i = 0; i < iterations[iterator]; i++) {
+			algorithmCalculation(pMatrix, pVector, pResult, dimensions[iterator], accuracy);
+		}
+
+		registrEndTime = __rdtsc();
+		DWORD windowsEndTime = GetTickCount();
+
+		printf_s("Dimension: %d\n", dimensions[iterator]);
+		printf_s("Iterations: %d\n", iterations[iterator]);
+
+		printf_s("Windows, %f milliseconds\n", (double)(windowsEndTime - windowsStartTime) / (double)iterations[iterator]);
+		printf_s("Register  , %f milliseconds\n", ((registrEndTime - registrStartTime) / (double)frequency) * 1000 / (double)iterations[iterator]);
+
+		checkTotalResultAbsolutely(pMatrix, pVector, pResult, dimensions[iterator]);
+	}
 	scanf_s("%d");
 	return 0;
 }
